@@ -14,28 +14,28 @@ app = Flask(__name__)
 CORS(app)
 app.config['JSON_SORT_KEYS'] = False
 
-# ***** THE FIX: Add the Google Drive API scope *****
-# We now need permissions for both Sheets and Drive
 API_SCOPES = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
 
 try:
-    # Credentials for Gemini API (does not need special scopes)
-    gemini_creds = service_account.Credentials.from_service_account_file("gemini-key.json")
+    # Load service account credentials from environment variable
+    service_account_info = json.loads(os.environ["GOOGLE_CREDS"])
+
+    # Gemini credentials (no scopes needed)
+    gemini_creds = service_account.Credentials.from_service_account_info(service_account_info)
     genai.configure(credentials=gemini_creds)
-    
-    # Credentials for Google Sheets and Drive APIs
-    scoped_creds = service_account.Credentials.from_service_account_file("gemini-key.json", scopes=API_SCOPES)
+
+    # Google Sheets and Drive API credentials (with scopes)
+    scoped_creds = service_account.Credentials.from_service_account_info(service_account_info, scopes=API_SCOPES)
+
     sheets_service = build('sheets', 'v4', credentials=scoped_creds)
-    
-    # ***** THE FIX: Build a new service object for the Google Drive API *****
     drive_service = build('drive', 'v3', credentials=scoped_creds)
 
-    # Initialize the Gemini models
     text_model = genai.GenerativeModel("models/gemini-1.5-pro")
     json_model = genai.GenerativeModel(
         "models/gemini-1.5-pro",
         generation_config={"response_mime_type": "application/json"}
     )
+
     print("Gemini, Google Sheets, and Google Drive services configured successfully.")
 
 except Exception as e:
@@ -45,7 +45,7 @@ except Exception as e:
     sheets_service = None
     drive_service = None
 
-# --- 2. HELPER FUNCTIONS (No changes here) ---
+# --- 2. HELPER FUNCTIONS ---
 
 def extract_text_from_pdf(file_stream):
     try:
@@ -104,6 +104,10 @@ def reinvestigate_language_discrepancy(name, name_lang, province, province_lang)
 
 # --- 3. FLASK API ENDPOINTS ---
 
+@app.route("/", methods=["GET"])
+def home():
+    return "✅ CV App is running. Use /upload or /export."
+
 @app.route("/upload", methods=["POST"])
 def upload_and_process_cv():
     if "file" not in request.files: return Response(json.dumps({"error": "No file part"}), status=400, mimetype='application/json')
@@ -155,13 +159,11 @@ def export_to_sheets():
     candidate_name = cv_data.get("Name and Surname", "New Candidate")
 
     try:
-        # Step 1: Create the sheet
         spreadsheet_body = {'properties': {'title': f"CV Analysis - {candidate_name}"}}
         spreadsheet = sheets_service.spreadsheets().create(body=spreadsheet_body, fields='spreadsheetUrl,spreadsheetId').execute()
         sheet_url = spreadsheet.get('spreadsheetUrl')
         sheet_id = spreadsheet.get('spreadsheetId')
 
-        # Step 2: Write data to the sheet
         values_to_write = list(map(list, cv_data.items()))
         update_body = {'values': values_to_write}
         sheets_service.spreadsheets().values().update(
@@ -170,13 +172,10 @@ def export_to_sheets():
             valueInputOption='RAW',
             body=update_body
         ).execute()
-        
-        # Step 3: Set permissions using the Drive API
-        # ***** THE FIX: Use the drive_service object to set permissions *****
+
         permission_body = {'type': 'anyone', 'role': 'reader'}
         drive_service.permissions().create(fileId=sheet_id, body=permission_body).execute()
 
-        # Step 4: Return the URL
         return Response(json.dumps({'sheetUrl': sheet_url}), mimetype='application/json')
 
     except Exception as e:
@@ -188,5 +187,3 @@ def export_to_sheets():
 # --- 4. RUN THE APPLICATION ---
 if __name__ == "__main__":
     app.run(debug=True, port=5000)
-
-# Trigger redeploy
