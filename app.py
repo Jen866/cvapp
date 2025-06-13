@@ -2,7 +2,7 @@ import os
 import json
 import fitz  # PyMuPDF
 import google.generativeai as genai
-from flask import Flask, request, Response
+from flask import Flask, request, Response, render_template
 from flask_cors import CORS
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
@@ -14,19 +14,20 @@ app = Flask(__name__)
 CORS(app)
 app.config['JSON_SORT_KEYS'] = False
 
-API_SCOPES = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
+API_SCOPES = [
+    'https://www.googleapis.com/auth/spreadsheets',
+    'https://www.googleapis.com/auth/drive'
+]
 
 try:
-    # Load service account credentials from environment variable
     service_account_info = json.loads(os.environ["GOOGLE_CREDS"])
-
+    
     # Gemini credentials (no scopes needed)
     gemini_creds = service_account.Credentials.from_service_account_info(service_account_info)
     genai.configure(credentials=gemini_creds)
 
     # Google Sheets and Drive API credentials (with scopes)
     scoped_creds = service_account.Credentials.from_service_account_info(service_account_info, scopes=API_SCOPES)
-
     sheets_service = build('sheets', 'v4', credentials=scoped_creds)
     drive_service = build('drive', 'v3', credentials=scoped_creds)
 
@@ -106,7 +107,7 @@ def reinvestigate_language_discrepancy(name, name_lang, province, province_lang)
 
 @app.route("/", methods=["GET"])
 def home():
-    return "✅ CV App is running. Use /upload or /export."
+    return render_template("index.html")
 
 @app.route("/upload", methods=["POST"])
 def upload_and_process_cv():
@@ -141,10 +142,14 @@ def upload_and_process_cv():
     cv_data["Final Predicted Native Language"] = final_language
     cv_data["Language Assessment Note"] = assessment_note
 
-    final_order = ["Name and Surname", "Contact number", "Email address", "Town", "City", "Province", "Race", "Qualification", "University of Qualification", "Year of Qualification", "Current place of work", "First Language", "Second Language", "Dominant Province Language", "Final Predicted Native Language", "Language Assessment Note"]
+    final_order = [
+        "Name and Surname", "Contact number", "Email address", "Town", "City", "Province",
+        "Race", "Qualification", "University of Qualification", "Year of Qualification",
+        "Current place of work", "First Language", "Second Language",
+        "Dominant Province Language", "Final Predicted Native Language", "Language Assessment Note"
+    ]
     ordered_cv_data = OrderedDict((key, cv_data.get(key)) for key in final_order)
-    json_string = json.dumps(ordered_cv_data, indent=4)
-    return Response(json_string, mimetype='application/json')
+    return Response(json.dumps(ordered_cv_data, indent=4), mimetype='application/json')
 
 @app.route("/export", methods=["POST"])
 def export_to_sheets():
@@ -179,10 +184,10 @@ def export_to_sheets():
         return Response(json.dumps({'sheetUrl': sheet_url}), mimetype='application/json')
 
     except Exception as e:
-        print(f"\n!!!!!!!!!! EXPORT FAILED !!!!!!!!!!!")
+        print("\n!!!!!!!!!! EXPORT FAILED !!!!!!!!!!!")
         print(f"An error occurred during the export process: {e}")
-        print(f"!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n")
-        return Response(json.dumps({"error": f"Failed to create Google Sheet. Check the backend terminal for detailed errors."}), status=500, mimetype='application/json')
+        print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n")
+        return Response(json.dumps({"error": "Failed to create Google Sheet. Check the backend terminal for detailed errors."}), status=500, mimetype='application/json')
 
 # --- 4. RUN THE APPLICATION ---
 if __name__ == "__main__":
