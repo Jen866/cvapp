@@ -11,39 +11,59 @@
       display: flex;
       justify-content: center;
       align-items: center;
-      height: 100vh;
+      min-height: 100vh;
       margin: 0;
     }
+
     .card {
       background: white;
       padding: 2rem;
       border-radius: 8px;
       box-shadow: 0px 4px 20px rgba(0, 0, 0, 0.1);
-      max-width: 600px;
+      max-width: 700px;
       width: 100%;
       text-align: center;
     }
+
     h1 {
       margin: 0;
       color: #b89b64;
     }
+
     h2 {
       margin-top: 0.5rem;
       color: #333;
     }
+
     .upload-box {
       border: 2px dashed #b89b64;
       padding: 1.5rem;
       margin: 1rem 0;
       cursor: pointer;
     }
-    #result {
-      white-space: pre-wrap;
+
+    #result-table {
+      margin-top: 2rem;
       text-align: left;
-      margin-top: 1rem;
-      border-top: 1px solid #ccc;
-      padding-top: 1rem;
     }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 1rem;
+    }
+
+    th, td {
+      border: 1px solid #ddd;
+      padding: 8px;
+      vertical-align: top;
+    }
+
+    th {
+      background-color: #f2f2f2;
+      text-align: left;
+    }
+
     button {
       background-color: #b89b64;
       color: white;
@@ -52,6 +72,11 @@
       border-radius: 4px;
       font-weight: bold;
       cursor: pointer;
+      margin-top: 1rem;
+    }
+
+    #exportBtn {
+      display: none;
     }
   </style>
 </head>
@@ -60,17 +85,24 @@
     <h1>ACTUARY</h1>
     <h2>CONSULTING</h2>
     <p>Please select a CV (PDF only) for data extraction.</p>
+
     <input type="file" id="cvFile" accept=".pdf" style="display:none;" />
     <div class="upload-box" onclick="document.getElementById('cvFile').click()">
       <span id="fileName">Click to select file</span>
     </div>
+
     <button onclick="analyzeCV()">ANALYZE CV</button>
-    <div id="result"></div>
+    <div id="result-table"></div>
+
+    <button id="exportBtn" onclick="exportToSheets()">EXPORT TO GOOGLE SHEETS</button>
   </div>
 
   <script>
     const fileInput = document.getElementById("cvFile");
     const fileNameSpan = document.getElementById("fileName");
+    const resultDiv = document.getElementById("result-table");
+    const exportBtn = document.getElementById("exportBtn");
+    let lastExtractedData = null;
 
     fileInput.addEventListener("change", () => {
       const file = fileInput.files[0];
@@ -89,7 +121,8 @@
       const formData = new FormData();
       formData.append("file", file);
 
-      document.getElementById("result").textContent = "Processing...";
+      resultDiv.innerHTML = "Processing...";
+      exportBtn.style.display = "none";
 
       try {
         const res = await fetch("/upload", {
@@ -97,15 +130,55 @@
           body: formData,
         });
 
-        const text = await res.text();
-        document.getElementById("result").textContent = text;
+        const data = await res.json();
+        lastExtractedData = data;
+
+        // Build HTML table
+        const table = document.createElement("table");
+        const header = document.createElement("tr");
+        header.innerHTML = "<th>Field</th><th>Value</th>";
+        table.appendChild(header);
+
+        for (const key in data) {
+          const row = document.createElement("tr");
+          row.innerHTML = `<td><strong>${key}</strong></td><td>${data[key]}</td>`;
+          table.appendChild(row);
+        }
+
+        resultDiv.innerHTML = "";
+        resultDiv.appendChild(table);
+        exportBtn.style.display = "inline-block";
+
       } catch (err) {
-        document.getElementById("result").textContent = "Error uploading CV.";
+        resultDiv.textContent = "Error uploading or processing CV.";
+        console.error(err);
+      }
+    }
+
+    async function exportToSheets() {
+      if (!lastExtractedData) return;
+
+      try {
+        const res = await fetch("/export", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(lastExtractedData)
+        });
+
+        const result = await res.json();
+        if (result.sheetUrl) {
+          window.open(result.sheetUrl, "_blank");
+        } else {
+          alert("Export failed.");
+        }
+      } catch (err) {
+        alert("Export error.");
         console.error(err);
       }
     }
   </script>
 </body>
 </html>
+
 
 
