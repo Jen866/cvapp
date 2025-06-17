@@ -21,12 +21,10 @@ API_SCOPES = [
 
 try:
     service_account_info = json.loads(os.environ["GOOGLE_CREDS"])
-    
-    # Gemini credentials (no scopes needed)
+
     gemini_creds = service_account.Credentials.from_service_account_info(service_account_info)
     genai.configure(credentials=gemini_creds)
 
-    # Google Sheets and Drive API credentials (with scopes)
     scoped_creds = service_account.Credentials.from_service_account_info(service_account_info, scopes=API_SCOPES)
     sheets_service = build('sheets', 'v4', credentials=scoped_creds)
     drive_service = build('drive', 'v3', credentials=scoped_creds)
@@ -60,7 +58,7 @@ def extract_cv_info(cv_text):
     prompt = f"""
     Based on the following CV text, extract the specified fields.
     If a field is not found, use `null` as the value.
-    Return the fields in this exact order: "Name and Surname", "Contact number", "Email address", "Town", "City", "Province", "Race", "Qualification", "University of Qualification", "Year of Qualification", "Current place of work", "First Language", "Second Language".
+    Return the fields in this exact order: "Name and Surname", "Contact number", "Email address", "Suburb", "City", "Province", "Qualification", "University of Qualification", "Year of Qualification", "Current place of work", "First Language", "Second Language".
     CV Text: --- {cv_text} ---
     """
     try:
@@ -125,7 +123,7 @@ def upload_and_process_cv():
     name = cv_data.get("Name and Surname")
     province = cv_data.get("Province")
     if not province:
-        location = cv_data.get("City") or cv_data.get("Town")
+        location = cv_data.get("City") or cv_data.get("Suburb")
         province = get_province_from_location(location) if location else None
         cv_data["Province"] = province
 
@@ -143,8 +141,8 @@ def upload_and_process_cv():
     cv_data["Language Assessment Note"] = assessment_note
 
     final_order = [
-        "Name and Surname", "Contact number", "Email address", "Town", "City", "Province",
-        "Race", "Qualification", "University of Qualification", "Year of Qualification",
+        "Name and Surname", "Contact number", "Email address", "Suburb", "City", "Province",
+        "Qualification", "University of Qualification", "Year of Qualification",
         "Current place of work", "First Language", "Second Language",
         "Dominant Province Language", "Final Predicted Native Language", "Language Assessment Note"
     ]
@@ -160,7 +158,7 @@ def export_to_sheets():
     cv_data = request.get_json()
     if not cv_data:
         return Response(json.dumps({"error": "No data received for export."}), status=400, mimetype='application/json')
-    
+
     candidate_name = cv_data.get("Name and Surname", "New Candidate")
 
     try:
@@ -192,3 +190,4 @@ def export_to_sheets():
 # --- 4. RUN THE APPLICATION ---
 if __name__ == "__main__":
     app.run(debug=True, port=5000)
+
