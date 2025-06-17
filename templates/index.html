@@ -92,7 +92,100 @@
       <span id="fileName">Click to select file</span>
     </div>
 
-    <button onclick="ana
+    <button onclick="analyzeCV()">ANALYSE CV</button>
+    <div id="result-table"></div>
+
+    <button id="exportBtn" onclick="exportToSheets()">EXPORT TO GOOGLE SHEETS</button>
+  </div>
+
+  <script>
+    const fileInput = document.getElementById("cvFile");
+    const fileNameSpan = document.getElementById("fileName");
+    const resultDiv = document.getElementById("result-table");
+    const exportBtn = document.getElementById("exportBtn");
+    let lastExtractedData = null;
+
+    fileInput.addEventListener("change", () => {
+      const file = fileInput.files[0];
+      if (file) {
+        fileNameSpan.textContent = `Selected: ${file.name}`;
+      }
+    });
+
+    async function analyzeCV() {
+      const file = fileInput.files[0];
+      if (!file) {
+        alert("Please select a PDF file first.");
+        return;
+      }
+
+      const formData = new FormData();
+      formData.append("file", file);
+
+      resultDiv.innerHTML = "Processing...";
+      exportBtn.style.display = "none";
+
+      try {
+        const res = await fetch("/upload", {
+          method: "POST",
+          body: formData,
+        });
+
+        const data = await res.json();
+        lastExtractedData = data;
+
+        const table = document.createElement("table");
+        const headerRow = document.createElement("tr");
+        const valueRow = document.createElement("tr");
+
+        data.headers.forEach((header, i) => {
+          const th = document.createElement("th");
+          th.textContent = header;
+          headerRow.appendChild(th);
+
+          const td = document.createElement("td");
+          td.textContent = data.row[i] ?? "";
+          valueRow.appendChild(td);
+        });
+
+        table.appendChild(headerRow);
+        table.appendChild(valueRow);
+
+        resultDiv.innerHTML = "";
+        resultDiv.appendChild(table);
+        exportBtn.style.display = "inline-block";
+
+      } catch (err) {
+        resultDiv.textContent = "Error uploading or processing CV.";
+        console.error(err);
+      }
+    }
+
+    async function exportToSheets() {
+      if (!lastExtractedData) return;
+
+      try {
+        const res = await fetch("/export", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(lastExtractedData)
+        });
+
+        const result = await res.json();
+        if (result.sheetUrl) {
+          window.open(result.sheetUrl, "_blank");
+        } else {
+          alert("Export failed.");
+        }
+      } catch (err) {
+        alert("Export error.");
+        console.error(err);
+      }
+    }
+  </script>
+</body>
+</html>
+
 
 
 
