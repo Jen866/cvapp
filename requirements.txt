@@ -1,9 +1,9 @@
 Flask
 flask-cors
-pymupdf
+PyMuPDF
 google-api-python-client
 google-auth
 google-auth-oauthlib
-openai
-gunicorn
+google-auth-httplib2
 google-generativeai
+gunicorn
