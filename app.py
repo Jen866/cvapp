@@ -56,7 +56,47 @@ def extract_cv_info(cv_text):
     except Exception as e:
         return {"error": f"Error calling Gemini for CV data: {e}"}
 
-# ... [Other helper functions unchanged: get_language_from_name, etc.] ...
+def get_language_from_name(name_and_surname):
+    if not text_model:
+        return "Error"
+    if not name_and_surname:
+        return None
+    prompt = f"""Analyze the South African name \"{name_and_surname}\" for the most likely native language. Choose one from: isiZulu, isiXhosa, Afrikaans, Sepedi, English, Setswana, Sesotho, Xitsonga, siSwati, Tshivenda, isiNdebele. Default to English for generic names. Return only the language name."""
+    try:
+        return text_model.generate_content(prompt).text.strip()
+    except Exception:
+        return "Error"
+
+def get_province_from_location(location_name):
+    if not text_model:
+        return "Error"
+    if not location_name:
+        return None
+    prompt = f"""For the SA location \"{location_name}\", identify its province. Choose from: Eastern Cape, Free State, Gauteng, KwaZulu-Natal, Limpopo, Mpumalanga, North West, Northern Cape, Western Cape. If invalid, return \"Unknown\". Return only the province name."""
+    try:
+        return text_model.generate_content(prompt).text.strip()
+    except Exception:
+        return "Error"
+
+def get_dominant_language_for_province(province_name):
+    if not text_model:
+        return "Error"
+    if not province_name or province_name in ["Unknown", "Error"]:
+        return None
+    prompt = f"""What is the single most spoken NATIVE language in the SA province of \"{province_name}\"? Choose from: isiZulu, isiXhosa, Afrikaans, Sepedi, English, Setswana, Sesotho, Xitsonga, siSwati, Tshivenda, isiNdebele. Return only the language name."""
+    try:
+        return text_model.generate_content(prompt).text.strip()
+    except Exception:
+        return "Error"
+
+def reinvestigate_language_discrepancy(name, name_lang, province, province_lang):
+    if not text_model:
+        return "Error"
+    prompt = f"""Final analysis: A candidate's language is unclear. Name: \"{name}\" (suggests {name_lang}). Province: \"{province}\" (dominant language is {province_lang}). What is the MOST LIKELY native language? Consider name and location. Choose one from: isiZulu, isiXhosa, Afrikaans, Sepedi, English, Setswana, Sesotho, Xitsonga, siSwati, Tshivenda, isiNdebele. Return ONLY the language name."""
+    try:
+        return text_model.generate_content(prompt).text.strip()
+    except Exception:
+        return "Error"
 
 @app.route("/", methods=["GET"])
 def home():
@@ -162,6 +202,7 @@ def export_all_to_sheet():
 
 if __name__ == "__main__":
     app.run(debug=True, port=5000)
+
 
 
 
