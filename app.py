@@ -1,4 +1,7 @@
-# ... [All your existing imports stay unchanged] ...
+ import os
+import json
+import fitz  # PyMuPDF
+import google.generativeai as genai
 
 from flask import Flask, request, Response, render_template
 from flask_cors import CORS
