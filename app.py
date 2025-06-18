@@ -1,8 +1,7 @@
- import os
+import os
 import json
 import fitz  # PyMuPDF
 import google.generativeai as genai
-
 from flask import Flask, request, Response, render_template
 from flask_cors import CORS
 from google.oauth2 import service_account
