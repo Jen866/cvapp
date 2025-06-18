@@ -85,14 +85,14 @@
   <div class="card">
     <h1>ACTUARY</h1>
     <h2>CONSULTING</h2>
-    <p>Please select a CV (PDF only) for data extraction.</p>
+    <p>Please select up to 10 CVs (PDF only) for data extraction.</p>
 
-    <input type="file" id="cvFile" accept=".pdf" style="display:none;" />
+    <input type="file" id="cvFile" accept=".pdf" style="display:none;" multiple />
     <div class="upload-box" onclick="document.getElementById('cvFile').click()">
-      <span id="fileName">Click to select file</span>
+      <span id="fileName">Click to select file(s)</span>
     </div>
 
-    <button onclick="analyzeCV()">ANALYSE CV</button>
+    <button onclick="analyzeCVs()">ANALYSE CVS</button>
     <div id="result-table"></div>
 
     <button id="exportBtn" onclick="exportToSheets()">EXPORT TO GOOGLE SHEETS</button>
@@ -103,72 +103,82 @@
     const fileNameSpan = document.getElementById("fileName");
     const resultDiv = document.getElementById("result-table");
     const exportBtn = document.getElementById("exportBtn");
-    let lastExtractedData = null;
+    let allExtractedData = [];
 
     fileInput.addEventListener("change", () => {
-      const file = fileInput.files[0];
-      if (file) {
-        fileNameSpan.textContent = `Selected: ${file.name}`;
-      }
+      const names = Array.from(fileInput.files).map(file => file.name).join(", ");
+      fileNameSpan.textContent = `Selected: ${names}`;
     });
 
-    async function analyzeCV() {
-      const file = fileInput.files[0];
-      if (!file) {
-        alert("Please select a PDF file first.");
+    async function analyzeCVs() {
+      const files = Array.from(fileInput.files);
+      if (files.length === 0) {
+        alert("Please select at least one PDF file.");
+        return;
+      }
+      if (files.length > 10) {
+        alert("You can upload a maximum of 10 CVs at once.");
         return;
       }
 
-      const formData = new FormData();
-      formData.append("file", file);
-
       resultDiv.innerHTML = "Processing...";
       exportBtn.style.display = "none";
+      allExtractedData = [];
+
+      const formData = new FormData();
+      files.forEach(file => formData.append("cv_files", file));
 
       try {
-        const res = await fetch("/upload", {
+        const res = await fetch("/extract", {
           method: "POST",
           body: formData,
         });
 
-        const data = await res.json();
-        lastExtractedData = data;
+        const data = await res.json(); // array of { headers, row }
+        resultDiv.innerHTML = "";
 
-        const table = document.createElement("table");
-        const headerRow = document.createElement("tr");
-        const valueRow = document.createElement("tr");
+        data.forEach(cv => {
+          allExtractedData.push(cv);
+          const table = document.createElement("table");
 
-        data.headers.forEach((header, i) => {
-          const th = document.createElement("th");
-          th.textContent = header;
-          headerRow.appendChild(th);
+          const headerRow = document.createElement("tr");
+          const valueRow = document.createElement("tr");
 
-          const td = document.createElement("td");
-          td.textContent = data.row[i] ?? "";
-          valueRow.appendChild(td);
+          cv.headers.forEach((header, i) => {
+            const th = document.createElement("th");
+            th.textContent = header;
+            headerRow.appendChild(th);
+
+            const td = document.createElement("td");
+            td.textContent = cv.row[i] ?? "";
+            valueRow.appendChild(td);
+          });
+
+          table.appendChild(headerRow);
+          table.appendChild(valueRow);
+          resultDiv.appendChild(table);
+
+          // Add spacing between tables
+          const spacer = document.createElement("div");
+          spacer.style.marginBottom = "2rem";
+          resultDiv.appendChild(spacer);
         });
 
-        table.appendChild(headerRow);
-        table.appendChild(valueRow);
-
-        resultDiv.innerHTML = "";
-        resultDiv.appendChild(table);
         exportBtn.style.display = "inline-block";
-
       } catch (err) {
-        resultDiv.textContent = "Error uploading or processing CV.";
+        resultDiv.textContent = "Error uploading or processing CVs.";
         console.error(err);
       }
     }
 
     async function exportToSheets() {
-      if (!lastExtractedData) return;
+      if (allExtractedData.length === 0) return;
 
       try {
         const res = await fetch("/export", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(lastExtractedData)
+          body: JSON.stringify(allExtractedData)
         });
 
         const result = await res.json();
@@ -185,6 +195,8 @@
   </script>
 </body>
 </html>
+
+
 
 
 
