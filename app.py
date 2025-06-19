@@ -168,7 +168,6 @@ def export_all_to_sheet():
         return Response(json.dumps({"error": "Invalid format. Expected a list of CV results."}), status=400, mimetype='application/json')
 
     try:
-        # Load or create sheet ID
         sheet_path = "sheet_id.txt"
         if os.path.exists(sheet_path):
             with open(sheet_path, "r") as f:
@@ -185,11 +184,10 @@ def export_all_to_sheet():
             with open(sheet_path, "w") as f:
                 f.write(sheet_id)
 
-           drive_service.permissions().create(
-    fileId=sheet_id,
-    body={"type": "anyone", "role": "writer"}
-).execute()
-
+            drive_service.permissions().create(
+                fileId=sheet_id,
+                body={"type": "anyone", "role": "writer"}
+            ).execute()
 
             headers = data[0]["headers"]
             sheets_service.spreadsheets().values().update(
