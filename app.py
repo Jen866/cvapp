@@ -18,7 +18,6 @@ API_SCOPES = [
 ]
 
 # ==== API CONFIG ====
-
 try:
     service_account_info = json.loads(os.environ["GOOGLE_CREDS"])
     gemini_creds = service_account.Credentials.from_service_account_info(service_account_info)
@@ -168,32 +167,48 @@ def export_all_to_sheet():
     if not isinstance(data, list):
         return Response(json.dumps({"error": "Invalid format. Expected a list of CV results."}), status=400, mimetype='application/json')
 
-    # Create or reuse a consistent sheet
     try:
-        spreadsheet = sheets_service.spreadsheets().create(
-            body={"properties": {"title": "CV Analysis"}},
-            fields="spreadsheetId,spreadsheetUrl"
-        ).execute()
+        # Load or create sheet ID
+        sheet_path = "sheet_id.txt"
+        if os.path.exists(sheet_path):
+            with open(sheet_path, "r") as f:
+                sheet_id = f.read().strip()
+            sheet_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}"
+        else:
+            sheet = sheets_service.spreadsheets().create(
+                body={"properties": {"title": "CV Analysis"}},
+                fields="spreadsheetId"
+            ).execute()
+            sheet_id = sheet["spreadsheetId"]
+            sheet_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}"
 
-        sheet_id = spreadsheet["spreadsheetId"]
-        sheet_url = spreadsheet["spreadsheetUrl"]
+            with open(sheet_path, "w") as f:
+                f.write(sheet_id)
 
-        # Compose final rows
-        all_rows = []
+            drive_service.permissions().create(
+                fileId=sheet_id,
+                body={"type": "anyone", "role": "reader"}
+            ).execute()
+
+            headers = data[0]["headers"]
+            sheets_service.spreadsheets().values().update(
+                spreadsheetId=sheet_id,
+                range="A1",
+                valueInputOption="RAW",
+                body={"values": [headers]}
+            ).execute()
+
+        rows = []
         for cv in data:
-            all_rows.append(cv["row"])
-            all_rows.append([""] * len(cv["headers"]))  # blank row
+            rows.append(cv["row"])
+            rows.append([""] * len(cv["headers"]))  # blank row
 
-        sheets_service.spreadsheets().values().update(
+        sheets_service.spreadsheets().values().append(
             spreadsheetId=sheet_id,
             range="A1",
             valueInputOption="RAW",
-            body={"values": [data[0]["headers"]] + all_rows}
-        ).execute()
-
-        drive_service.permissions().create(
-            fileId=sheet_id,
-            body={"type": "anyone", "role": "reader"}
+            insertDataOption="INSERT_ROWS",
+            body={"values": rows}
         ).execute()
 
         return Response(json.dumps({"sheetUrl": sheet_url}), mimetype='application/json')
@@ -201,6 +216,6 @@ def export_all_to_sheet():
         return Response(json.dumps({"error": f"Sheet export failed: {e}"}), status=500, mimetype='application/json')
 
 if __name__ == "__main__":
-    import os
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
+
