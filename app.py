@@ -110,7 +110,7 @@ def extract_multiple():
         return Response(json.dumps({"error": "No files received"}), status=400, mimetype='application/json')
 
     results = []
-    for file in files[:10]:
+    for file in files[:5]:
         if not file.filename.lower().endswith(".pdf"):
             continue
         text = extract_text_from_pdf(file)
@@ -185,10 +185,11 @@ def export_all_to_sheet():
             with open(sheet_path, "w") as f:
                 f.write(sheet_id)
 
-            drive_service.permissions().create(
-                fileId=sheet_id,
-                body={"type": "anyone", "role": "reader"}
-            ).execute()
+           drive_service.permissions().create(
+    fileId=sheet_id,
+    body={"type": "anyone", "role": "writer"}
+).execute()
+
 
             headers = data[0]["headers"]
             sheets_service.spreadsheets().values().update(
