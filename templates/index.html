@@ -116,8 +116,8 @@
         alert("Please select at least one PDF file.");
         return;
       }
-      if (files.length > 10) {
-        alert("You can upload a maximum of 10 CVs at once.");
+      if (files.length > 5) {
+        alert("You can upload a maximum of 5 CVs at once.");
         return;
       }
 
@@ -134,7 +134,7 @@
           body: formData,
         });
 
-        const data = await res.json(); // array of { headers, row }
+        const data = await res.json(); // array of { headers, row, role }
         resultDiv.innerHTML = "";
 
         data.forEach(cv => {
@@ -158,7 +158,6 @@
           table.appendChild(valueRow);
           resultDiv.appendChild(table);
 
-          // Add spacing between tables
           const spacer = document.createElement("div");
           spacer.style.marginBottom = "2rem";
           resultDiv.appendChild(spacer);
@@ -182,8 +181,13 @@
         });
 
         const result = await res.json();
-        if (result.sheetUrl) {
-          window.open(result.sheetUrl, "_blank");
+        console.log("Export result:", result);
+
+        if (result.sheets) {
+          const links = Object.entries(result.sheets)
+            .map(([role, url]) => `<a href="${url}" target="_blank">${role.toUpperCase()} SHEET</a>`)
+            .join("<br><br>");
+          resultDiv.innerHTML = `<p><strong>Export complete!</strong><br>${links}</p>`;
         } else {
           alert("Export failed.");
         }
@@ -195,10 +199,3 @@
   </script>
 </body>
 </html>
-
-
-
-
-
-
-
