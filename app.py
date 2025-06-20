@@ -49,7 +49,7 @@ def extract_text_from_pdf(file_stream):
 def extract_cv_info(cv_text):
     if not json_model:
         return {"error": "JSON Model not configured."}
-    prompt = f"""Based on the following CV text, extract the specified fields. If a field is not found, use `null` as the value. Return the fields in this exact order: "Name and Surname", "Contact number", "Email address", "Suburb", "City", "Province", "Race", "Qualification", "University of Qualification", "Year of Qualification", "Current place of work", "First Language", "Second Language". CV Text: --- {cv_text} ---"""
+    prompt = f"""Based on the following CV text, extract the specified fields. If a field is not found, use `null` as the value. Return the fields in this exact order: "Name and Surname", "Contact number", "Email address", "Suburb", "City", "Province", "Qualification", "University of Qualification", "Year of Qualification", "Current place of work", "First Language", "Second Language". CV Text: --- {cv_text} ---"""
     try:
         return json.loads(json_model.generate_content(prompt).text)
     except Exception as e:
@@ -143,7 +143,7 @@ def extract_multiple():
         cv_data["Language Assessment Note"] = assessment_note
 
         final_order = [
-            "Name and Surname", "Contact number", "Email address", "Suburb", "City", "Province", "Race",
+            "Name and Surname", "Contact number", "Email address", "Suburb", "City", "Province",
             "Qualification", "University of Qualification", "Year of Qualification",
             "Current place of work", "First Language", "Second Language",
             "Dominant Province Language", "Final Predicted Native Language", "Language Assessment Note"
