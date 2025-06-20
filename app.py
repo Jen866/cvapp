@@ -56,7 +56,7 @@ def extract_cv_info(cv_text):
 
 def determine_role(qualification):
     if not qualification:
-        return "business"  # fallback
+        return "business"
     lower_q = qualification.lower()
     if "actuarial" in lower_q or "actuary" in lower_q:
         return "actuarial"
@@ -119,8 +119,8 @@ def export_all_to_sheet():
         headers = data[0]["headers"]
 
         for entry in data:
-    role = entry.get("role", "business")
-    grouped[role].append(entry["row"])
+            role = entry.get("role", "business")
+            grouped[role].append(entry["row"])
 
         for role, entries in grouped.items():
             if not entries:
