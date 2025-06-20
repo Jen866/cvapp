@@ -6,7 +6,6 @@ from flask import Flask, request, Response, render_template
 from flask_cors import CORS
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
-from collections import OrderedDict
 
 app = Flask(__name__)
 CORS(app)
@@ -55,53 +54,17 @@ def extract_cv_info(cv_text):
     except Exception as e:
         return {"error": f"Error calling Gemini for CV data: {e}"}
 
-def get_language_from_name(name_and_surname):
-    if not text_model:
-        return "Error"
-    if not name_and_surname:
-        return None
-    prompt = f"""Analyze the South African name \"{name_and_surname}\" for the most likely native language. Choose one from: isiZulu, isiXhosa, Afrikaans, Sepedi, English, Setswana, Sesotho, Xitsonga, siSwati, Tshivenda, isiNdebele. Default to English for generic names. Return only the language name."""
-    try:
-        return text_model.generate_content(prompt).text.strip()
-    except Exception:
-        return "Error"
-
-def get_province_from_location(location_name):
-    if not text_model:
-        return "Error"
-    if not location_name:
-        return None
-    prompt = f"""For the SA location \"{location_name}\", identify its province. Choose from: Eastern Cape, Free State, Gauteng, KwaZulu-Natal, Limpopo, Mpumalanga, North West, Northern Cape, Western Cape. If invalid, return \"Unknown\". Return only the province name."""
-    try:
-        return text_model.generate_content(prompt).text.strip()
-    except Exception:
-        return "Error"
-
-def get_dominant_language_for_province(province_name):
-    if not text_model:
-        return "Error"
-    if not province_name or province_name in ["Unknown", "Error"]:
-        return None
-    prompt = f"""What is the single most spoken NATIVE language in the SA province of \"{province_name}\"? Choose from: isiZulu, isiXhosa, Afrikaans, Sepedi, English, Setswana, Sesotho, Xitsonga, siSwati, Tshivenda, isiNdebele. Return only the language name."""
-    try:
-        return text_model.generate_content(prompt).text.strip()
-    except Exception:
-        return "Error"
-
-def reinvestigate_language_discrepancy(name, name_lang, province, province_lang):
-    if not text_model:
-        return "Error"
-    prompt = f"""Final analysis: A candidate's language is unclear. Name: \"{name}\" (suggests {name_lang}). Province: \"{province}\" (dominant language is {province_lang}). What is the MOST LIKELY native language? Consider name and location. Choose one from: isiZulu, isiXhosa, Afrikaans, Sepedi, English, Setswana, Sesotho, Xitsonga, siSwati, Tshivenda, isiNdebele. Return ONLY the language name."""
-    try:
-        return text_model.generate_content(prompt).text.strip()
-    except Exception:
-        return "Error"
+def determine_role(qualification):
+    if not qualification:
+        return "business"  # fallback
+    lower_q = qualification.lower()
+    if "actuarial" in lower_q or "actuary" in lower_q:
+        return "actuarial"
+    return "business"
 
 @app.route("/", methods=["GET"])
 def home():
     return render_template("index.html")
-
-# ==== MULTI-CV EXTRACTION ====
 
 @app.route("/extract", methods=["POST"])
 def extract_multiple():
@@ -120,43 +83,21 @@ def extract_multiple():
         if "error" in cv_data:
             continue
 
-        name = cv_data.get("Name and Surname")
-        province = cv_data.get("Province")
-        if not province:
-            location = cv_data.get("City") or cv_data.get("Suburb")
-            province = get_province_from_location(location) if location else None
-            cv_data["Province"] = province
-
-        name_based_language = get_language_from_name(name)
-        province_based_language = get_dominant_language_for_province(province)
-        final_language = name_based_language
-        assessment_note = "Name-based prediction."
-
-        if name_based_language and province_based_language and name_based_language != province_based_language:
-            final_language = reinvestigate_language_discrepancy(name, name_based_language, province, province_based_language)
-            assessment_note = f"Discrepancy (Name: {name_based_language}, Province: {province_based_language}). Re-investigated."
-        elif name_based_language == province_based_language:
-            assessment_note = f"Name ({name_based_language}) & Province ({province_based_language}) align."
-
-        cv_data["Dominant Province Language"] = province_based_language
-        cv_data["Final Predicted Native Language"] = final_language
-        cv_data["Language Assessment Note"] = assessment_note
+        role = determine_role(cv_data.get("Qualification"))
 
         final_order = [
             "Name and Surname", "Contact number", "Email address", "Suburb", "City", "Province",
             "Qualification", "University of Qualification", "Year of Qualification",
-            "Current place of work", "First Language", "Second Language",
-            "Dominant Province Language", "Final Predicted Native Language", "Language Assessment Note"
+            "Current place of work", "First Language", "Second Language"
         ]
 
         results.append({
             "headers": final_order,
-            "row": [cv_data.get(k) for k in final_order]
+            "row": [cv_data.get(k) for k in final_order],
+            "role": role
         })
 
     return Response(json.dumps(results), mimetype='application/json')
-
-# ==== EXPORT COMPILED CVS ====
 
 @app.route("/export", methods=["POST"])
 def export_all_to_sheet():
@@ -167,54 +108,65 @@ def export_all_to_sheet():
     if not isinstance(data, list):
         return Response(json.dumps({"error": "Invalid format. Expected a list of CV results."}), status=400, mimetype='application/json')
 
+    sheet_ids = {
+        "actuarial": "sheet_id_actuarial.txt",
+        "business": "sheet_id_business.txt"
+    }
+    sheet_urls = {}
+
     try:
-        sheet_path = "sheet_id.txt"
-        if os.path.exists(sheet_path):
-            with open(sheet_path, "r") as f:
-                sheet_id = f.read().strip()
-            sheet_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}"
-        else:
-            sheet = sheets_service.spreadsheets().create(
-                body={"properties": {"title": "CV Analysis"}},
-                fields="spreadsheetId"
-            ).execute()
-            sheet_id = sheet["spreadsheetId"]
-            sheet_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}"
+        grouped = {"actuarial": [], "business": []}
+        headers = data[0]["headers"]
 
-            with open(sheet_path, "w") as f:
-                f.write(sheet_id)
+        for entry in data:
+            role = entry.get("role", "business")
+            grouped[role].append(entry["row"])
+            grouped[role].append([""] * len(entry["row"]))  # blank row
 
-            drive_service.permissions().create(
-                fileId=sheet_id,
-                body={"type": "anyone", "role": "writer"}
-            ).execute()
+        for role, entries in grouped.items():
+            if not entries:
+                continue
 
-            headers = data[0]["headers"]
-            sheets_service.spreadsheets().values().update(
+            file_path = sheet_ids[role]
+            if os.path.exists(file_path):
+                with open(file_path, "r") as f:
+                    sheet_id = f.read().strip()
+            else:
+                sheet = sheets_service.spreadsheets().create(
+                    body={"properties": {"title": f"{role.capitalize()} Candidates"}},
+                    fields="spreadsheetId"
+                ).execute()
+                sheet_id = sheet["spreadsheetId"]
+                with open(file_path, "w") as f:
+                    f.write(sheet_id)
+                drive_service.permissions().create(
+                    fileId=sheet_id,
+                    body={"type": "anyone", "role": "writer"}
+                ).execute()
+                sheets_service.spreadsheets().values().update(
+                    spreadsheetId=sheet_id,
+                    range="A1",
+                    valueInputOption="RAW",
+                    body={"values": [headers]}
+                ).execute()
+
+            sheets_service.spreadsheets().values().append(
                 spreadsheetId=sheet_id,
                 range="A1",
                 valueInputOption="RAW",
-                body={"values": [headers]}
+                insertDataOption="INSERT_ROWS",
+                body={"values": entries}
             ).execute()
 
-        rows = []
-        for cv in data:
-            rows.append(cv["row"])
-            rows.append([""] * len(cv["headers"]))  # blank row
+            sheet_urls[role] = f"https://docs.google.com/spreadsheets/d/{sheet_id}"
 
-        sheets_service.spreadsheets().values().append(
-            spreadsheetId=sheet_id,
-            range="A1",
-            valueInputOption="RAW",
-            insertDataOption="INSERT_ROWS",
-            body={"values": rows}
-        ).execute()
+        return Response(json.dumps({"sheets": sheet_urls}), mimetype='application/json')
 
-        return Response(json.dumps({"sheetUrl": sheet_url}), mimetype='application/json')
     except Exception as e:
         return Response(json.dumps({"error": f"Sheet export failed: {e}"}), status=500, mimetype='application/json')
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
+
 
