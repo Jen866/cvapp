@@ -6,196 +6,173 @@
   <title>CV Extractor</title>
   <style>
     body {
-      font-family: sans-serif;
-      background-color: #fef9f4;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      min-height: 100vh;
-      margin: 0;
-    }
-
-    .card {
-      background: white;
+      background-color: #fff8f3;
+      font-family: Arial, sans-serif;
+      text-align: center;
       padding: 2rem;
-      border-radius: 8px;
-      box-shadow: 0px 4px 20px rgba(0, 0, 0, 0.1);
-      max-width: 1000px;
-      width: 100%;
-      text-align: center;
     }
-
     h1 {
-      margin: 0;
-      color: #b89b64;
+      color: goldenrod;
+      margin-bottom: 0;
     }
-
     h2 {
-      margin-top: 0.5rem;
-      color: #333;
+      margin-top: 0;
+      color: #222;
     }
-
     .upload-box {
-      border: 2px dashed #b89b64;
-      padding: 1.5rem;
-      margin: 1rem 0;
-      cursor: pointer;
+      border: 2px dashed goldenrod;
+      padding: 2rem;
+      margin: 2rem auto;
+      max-width: 800px;
     }
-
-    #result-table {
-      margin-top: 2rem;
-      text-align: left;
-      overflow-x: auto;
-    }
-
     table {
-      width: 100%;
+      width: 95%;
+      margin: 2rem auto;
       border-collapse: collapse;
-      margin-top: 1rem;
     }
-
     th, td {
-      border: 1px solid #ddd;
-      padding: 8px;
-      vertical-align: top;
-      text-align: center;
+      padding: 8px 12px;
+      border: 1px solid #ccc;
+      text-align: left;
     }
-
     th {
-      background-color: #f2f2f2;
+      background-color: #f0f0f0;
     }
-
     button {
-      background-color: #b89b64;
-      color: white;
-      padding: 0.75rem 1.5rem;
-      border: none;
-      border-radius: 4px;
-      font-weight: bold;
-      cursor: pointer;
+      padding: 12px 24px;
       margin-top: 1rem;
+      font-weight: bold;
+      background-color: #c9a862;
+      color: white;
+      border: none;
+      cursor: pointer;
     }
-
-    #exportBtn {
-      display: none;
+    #resultTable {
+      margin-top: 30px;
     }
   </style>
 </head>
 <body>
-  <div class="card">
-    <h1>ACTUARY</h1>
-    <h2>CONSULTING</h2>
+
+  <h1>ACTUARY</h1>
+  <h2>CONSULTING</h2>
+
+  <form id="uploadForm" class="upload-box">
     <p>Please select up to 5 CVs (PDF only) for data extraction.</p>
+    <input type="file" id="fileInput" name="files" accept="application/pdf" multiple required />
+    <p id="fileNames"></p>
+    <button type="submit" id="analyseBtn">ANALYSE CVS</button>
+  </form>
 
-    <input type="file" id="cvFile" accept=".pdf" style="display:none;" multiple />
-    <div class="upload-box" onclick="document.getElementById('cvFile').click()">
-      <span id="fileName">Click to select file(s)</span>
-    </div>
+  <div id="processingText" style="display:none;">Processing...</div>
 
-    <button onclick="analyzeCVs()">ANALYSE CVS</button>
-    <div id="result-table"></div>
+  <div id="resultTable"></div>
 
-    <button id="exportBtn" onclick="exportToSheets()">EXPORT TO GOOGLE SHEETS</button>
+  <div style="margin-top: 2rem;">
+    <button id="exportBtn" style="display: none;">EXPORT TO GOOGLE SHEETS</button>
   </div>
 
   <script>
-    const fileInput = document.getElementById("cvFile");
-    const fileNameSpan = document.getElementById("fileName");
-    const resultDiv = document.getElementById("result-table");
+    const uploadForm = document.getElementById("uploadForm");
+    const fileInput = document.getElementById("fileInput");
+    const fileNames = document.getElementById("fileNames");
+    const resultTable = document.getElementById("resultTable");
     const exportBtn = document.getElementById("exportBtn");
-    let allExtractedData = [];
+    const processingText = document.getElementById("processingText");
+
+    let extractedRows = [];
+    const headers = [
+      "Name and Surname", "Contact number", "Email address", "Suburb", "City", "Province",
+      "Race", "Qualification", "University of Qualification", "Year of Qualification",
+      "Current place of work", "First Language", "Second Language"
+    ];
 
     fileInput.addEventListener("change", () => {
-      const names = Array.from(fileInput.files).map(file => file.name).join(", ");
-      fileNameSpan.textContent = `Selected: ${names}`;
+      const files = Array.from(fileInput.files).map(f => f.name).join(", ");
+      fileNames.textContent = "Selected: " + files;
     });
 
-    async function analyzeCVs() {
-      const files = Array.from(fileInput.files);
-      if (files.length === 0) {
-        alert("Please select at least one PDF file.");
-        return;
-      }
-      if (files.length > 5) {
-        alert("You can upload a maximum of 5 CVs at once.");
-        return;
-      }
-
-      resultDiv.innerHTML = "Processing...";
+    uploadForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      resultTable.innerHTML = "";
       exportBtn.style.display = "none";
-      allExtractedData = [];
+      processingText.style.display = "block";
 
       const formData = new FormData();
-      files.forEach(file => formData.append("cv_files", file));
+      for (let file of fileInput.files) {
+        formData.append("files", file);
+      }
 
       try {
         const res = await fetch("/extract", {
           method: "POST",
-          body: formData,
+          body: formData
         });
 
-        const data = await res.json(); // array of { headers, row, role }
-        resultDiv.innerHTML = "";
+        const data = await res.json();
+        extractedRows = data.rows;
 
-        data.forEach(cv => {
-          allExtractedData.push(cv);
-          const table = document.createElement("table");
-
-          const headerRow = document.createElement("tr");
-          const valueRow = document.createElement("tr");
-
-          cv.headers.forEach((header, i) => {
-            const th = document.createElement("th");
-            th.textContent = header;
-            headerRow.appendChild(th);
-
-            const td = document.createElement("td");
-            td.textContent = cv.row[i] ?? "";
-            valueRow.appendChild(td);
-          });
-
-          table.appendChild(headerRow);
-          table.appendChild(valueRow);
-          resultDiv.appendChild(table);
-
-          const spacer = document.createElement("div");
-          spacer.style.marginBottom = "2rem";
-          resultDiv.appendChild(spacer);
-        });
-
-        exportBtn.style.display = "inline-block";
-      } catch (err) {
-        resultDiv.textContent = "Error uploading or processing CVs.";
-        console.error(err);
-      }
-    }
-
-    async function exportToSheets() {
-      if (allExtractedData.length === 0) return;
-
-      try {
-        const res = await fetch("/export", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(allExtractedData)
-        });
-
-        const result = await res.json();
-        console.log("Export result:", result);
-
-        if (result.sheets) {
-          const links = Object.entries(result.sheets)
-            .map(([role, url]) => `<a href="${url}" target="_blank">${role.toUpperCase()} SHEET</a>`)
-            .join("<br><br>");
-          resultDiv.innerHTML = `<p><strong>Export complete!</strong><br>${links}</p>`;
-        } else {
-          alert("Export failed.");
+        if (!Array.isArray(extractedRows)) {
+          alert("Error extracting data.");
+          return;
         }
+
+        showPreview(extractedRows);
+        exportBtn.style.display = "inline-block";
+
       } catch (err) {
-        alert("Export error.");
+        alert("Failed to analyse CVs.");
         console.error(err);
+      } finally {
+        processingText.style.display = "none";
       }
+    });
+
+    function showPreview(rows) {
+      resultTable.innerHTML = "";
+      rows.forEach((row, index) => {
+        const table = document.createElement("table");
+
+        const headerRow = document.createElement("tr");
+        headers.forEach(h => {
+          const th = document.createElement("th");
+          th.textContent = h;
+          headerRow.appendChild(th);
+        });
+        table.appendChild(headerRow);
+
+        const dataRow = document.createElement("tr");
+        row.forEach(cell => {
+          const td = document.createElement("td");
+          td.textContent = cell;
+          dataRow.appendChild(td);
+        });
+        table.appendChild(dataRow);
+
+        resultTable.appendChild(table);
+      });
     }
+
+    exportBtn.addEventListener("click", async () => {
+      exportBtn.disabled = true;
+      exportBtn.textContent = "Exporting to Google Sheets...";
+
+      const res = await fetch("/export", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({headers, rows: extractedRows})
+      });
+
+      const data = await res.json();
+      if (data.sheetUrl) {
+        window.open(data.sheetUrl, "_blank");
+      } else {
+        alert("Export failed.");
+      }
+
+      exportBtn.disabled = false;
+      exportBtn.textContent = "EXPORT TO GOOGLE SHEETS";
+    });
   </script>
 </body>
 </html>
