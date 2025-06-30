@@ -11,175 +11,122 @@ app = Flask(__name__)
 CORS(app)
 app.config['JSON_SORT_KEYS'] = False
 
-API_SCOPES = [
+# Google API scopes
+SCOPES = [
     'https://www.googleapis.com/auth/spreadsheets',
     'https://www.googleapis.com/auth/drive'
 ]
 
+# Load credentials
 try:
-    service_account_info = json.loads(os.environ["GOOGLE_CREDS"])
-    gemini_creds = service_account.Credentials.from_service_account_info(service_account_info)
+    with open("google_creds.json") as f:
+        info = json.load(f)
+
+    gemini_creds = service_account.Credentials.from_service_account_info(info)
+    scoped_creds = service_account.Credentials.from_service_account_info(info, scopes=SCOPES)
+
     genai.configure(credentials=gemini_creds)
+    gemini_json = genai.GenerativeModel("models/gemini-1.5-pro", generation_config={"response_mime_type": "application/json"})
 
-    scoped_creds = service_account.Credentials.from_service_account_info(service_account_info, scopes=API_SCOPES)
-    sheets_service = build('sheets', 'v4', credentials=scoped_creds)
-    drive_service = build('drive', 'v3', credentials=scoped_creds)
+    sheets_service = build("sheets", "v4", credentials=scoped_creds)
+    drive_service = build("drive", "v3", credentials=scoped_creds)
 
-    text_model = genai.GenerativeModel("models/gemini-1.5-pro")
-    json_model = genai.GenerativeModel(
-        "models/gemini-1.5-pro",
-        generation_config={"response_mime_type": "application/json"}
-    )
+    print("✅ Gemini + Sheets + Drive configured")
 except Exception as e:
-    print(f"FATAL ERROR during API configuration: {e}")
-    text_model = None
-    json_model = None
+    print(f"❌ Config error: {e}")
+    gemini_json = None
     sheets_service = None
     drive_service = None
 
+# Sheet ID (single sheet to store all CVs)
+SHEET_ID = "17VWBbw2BwBC3eeuPVNqAESGdSVr7AVeMztKZLNfedb4"  # <-- Replace with your own sheet ID
+SHEET_RANGE = "A1"
 
-def extract_text_from_pdf(file_stream):
-    try:
-        doc = fitz.open(stream=file_stream.read(), filetype="pdf")
-        return "".join(page.get_text() for page in doc)
-    except Exception as e:
-        return {"error": f"Failed to parse PDF: {e}"}
-
-def extract_cv_info(cv_text):
-    if not json_model:
-        return {"error": "JSON Model not configured."}
-    prompt = f"""
-    Based on the following CV text, extract the specified fields.
-    If a field is not found, use `null` as the value.
-    Return the fields in this exact order: "Name and Surname", "Contact number", "Email address", "Suburb", "City", "Province", "Race", "Qualification", "University of Qualification", "Year of Qualification", "Current place of work", "First Language", "Second Language".
-    CV Text: --- {cv_text} ---
-    """
-    try:
-        return json.loads(json_model.generate_content(prompt).text)
-    except Exception as e:
-        return {"error": f"Error calling Gemini for CV data: {e}"}
-
-def determine_role(qualification):
-    if not qualification:
-        return "business"
-    if isinstance(qualification, list):
-        qualification = " ".join(map(str, qualification))
-    if "actuarial" in qualification.lower() or "actuary" in qualification.lower():
-        return "actuarial"
-    return "business"
-
-def flatten(value):
-    if isinstance(value, list):
-        return ", ".join(map(str, value))
-    return value
+# Fields to extract (must match front-end headers)
+FIELDS = [
+    "Name and Surname", "Contact number", "Email address", "Suburb", "City", "Province",
+    "Race", "Qualification", "University of Qualification", "Year of Qualification",
+    "Current place of work", "First Language", "Second Language"
+]
 
 @app.route("/")
 def home():
     return render_template("index.html")
 
+
+def extract_text(file_stream):
+    doc = fitz.open(stream=file_stream.read(), filetype="pdf")
+    return "".join(page.get_text() for page in doc)
+
+
+def extract_info_from_text(text):
+    prompt = f"""
+    Extract the following fields from this CV text. Use "null" for missing values. Return only JSON in this exact order:
+    {FIELDS}
+    
+    CV Text:
+    ---
+    {text}
+    ---
+    """
+    try:
+        response = gemini_json.generate_content(prompt)
+        return json.loads(response.text)
+    except Exception as e:
+        return {"error": f"Gemini error: {e}"}
+
+
+def flatten(value):
+    if isinstance(value, list):
+        return ", ".join(str(v) for v in value)
+    return value
+
+
 @app.route("/extract", methods=["POST"])
-def extract_multiple():
-    files = request.files.getlist("cv_files")
-    if not files:
-        return Response(json.dumps({"error": "No files received"}), status=400, mimetype='application/json')
+def extract_route():
+    if "files" not in request.files:
+        return Response(json.dumps({"error": "No files provided"}), status=400)
 
-    results = []
-    for file in files[:5]:
-        if not file.filename.lower().endswith(".pdf"):
-            continue
-        text = extract_text_from_pdf(file)
-        if isinstance(text, dict) and "error" in text:
-            continue
-        cv_data = extract_cv_info(text)
-        if "error" in cv_data:
-            continue
+    rows = []
+    for file in request.files.getlist("files"):
+        text = extract_text(file)
+        info = extract_info_from_text(text)
+        row = [flatten(info.get(field, "null")) for field in FIELDS]
+        rows.append(row)
 
-        role = determine_role(cv_data.get("Qualification"))
+    return {"rows": rows}
 
-        final_order = [
-            "Name and Surname", "Contact number", "Email address", "Suburb", "City", "Province",
-            "Race", "Qualification", "University of Qualification", "Year of Qualification",
-            "Current place of work", "First Language", "Second Language"
-        ]
-
-        flattened_row = [flatten(cv_data.get(k)) for k in final_order]
-
-        results.append({
-            "headers": final_order,
-            "row": flattened_row,
-            "role": role
-        })
-
-    return Response(json.dumps(results), mimetype='application/json')
 
 @app.route("/export", methods=["POST"])
-def export_all_to_sheet():
-    if not sheets_service or not drive_service:
-        return Response(json.dumps({"error": "Google API service not available."}), status=500, mimetype='application/json')
-
-    data = request.get_json()
-    if not isinstance(data, list):
-        return Response(json.dumps({"error": "Invalid format. Expected a list of CV results."}), status=400, mimetype='application/json')
-
-    sheet_ids = {
-        "actuarial": "sheet_id_actuarial.txt",
-        "business": "sheet_id_business.txt"
-    }
-    sheet_urls = {}
-
+def export_route():
     try:
-        grouped = {"actuarial": [], "business": []}
-        headers = data[0]["headers"]
+        if not sheets_service:
+            raise Exception("Sheets service not configured.")
 
-        for entry in data:
-            role = entry.get("role", "business")
-            grouped[role].append(entry["row"])
+        data = request.get_json()
+        headers = data.get("headers")
+        rows = data.get("rows")
 
-        for role, entries in grouped.items():
-            if not entries:
-                continue
+        if not headers or not rows:
+            return Response(json.dumps({"error": "Invalid payload"}), status=400)
 
-            file_path = sheet_ids[role]
-            if os.path.exists(file_path):
-                with open(file_path, "r") as f:
-                    sheet_id = f.read().strip()
-            else:
-                sheet = sheets_service.spreadsheets().create(
-                    body={"properties": {"title": f"{role.capitalize()} Candidates"}},
-                    fields="spreadsheetId"
-                ).execute()
-                sheet_id = sheet["spreadsheetId"]
-                with open(file_path, "w") as f:
-                    f.write(sheet_id)
-                drive_service.permissions().create(
-                    fileId=sheet_id,
-                    body={"type": "anyone", "role": "writer"}
-                ).execute()
-                sheets_service.spreadsheets().values().update(
-                    spreadsheetId=sheet_id,
-                    range="A1",
-                    valueInputOption="RAW",
-                    body={"values": [headers]}
-                ).execute()
+        values = [[""]] + rows  # Add a blank row before each batch
+        sheets_service.spreadsheets().values().append(
+            spreadsheetId=SHEET_ID,
+            range=SHEET_RANGE,
+            valueInputOption="RAW",
+            insertDataOption="INSERT_ROWS",
+            body={"values": values}
+        ).execute()
 
-            # Append rows without blank rows
-            sheets_service.spreadsheets().values().append(
-                spreadsheetId=sheet_id,
-                range="A1",
-                valueInputOption="RAW",
-                insertDataOption="INSERT_ROWS",
-                body={"values": entries}
-            ).execute()
-
-            sheet_urls[role] = f"https://docs.google.com/spreadsheets/d/{sheet_id}"
-
-        return Response(json.dumps({"sheets": sheet_urls}), mimetype='application/json')
+        # Return the sheet link
+        sheet_url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/edit"
+        return {"sheetUrl": sheet_url}
 
     except Exception as e:
-        return Response(json.dumps({"error": f"Sheet export failed: {e}"}), status=500, mimetype='application/json')
+        return Response(json.dumps({"error": f"Export failed: {e}"}), status=500)
 
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+    app.run(debug=True)
 
