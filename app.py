@@ -19,8 +19,8 @@ SCOPES = [
 
 # Load credentials
 try:
-    with open("google_creds.json") as f:
-        info = json.load(f)
+    service_account_info = json.loads(os.environ["GOOGLE_CREDS"])
+
 
     gemini_creds = service_account.Credentials.from_service_account_info(info)
     scoped_creds = service_account.Credentials.from_service_account_info(info, scopes=SCOPES)
