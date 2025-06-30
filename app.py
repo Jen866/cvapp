@@ -23,7 +23,7 @@ try:
         scopes=['https://www.googleapis.com/auth/spreadsheets']
     )
     sheets_service = build('sheets', 'v4', credentials=scoped_creds)
-    
+
     genai.configure(credentials=service_account.Credentials.from_service_account_info(service_account_info))
     json_model = genai.GenerativeModel(
         "models/gemini-1.5-pro",
@@ -99,13 +99,17 @@ def extract_multiple():
             })
     return Response(json.dumps(results), mimetype='application/json')
 
+
 @app.route("/export", methods=["POST"])
 def export_all_to_sheet():
+    print("--- EXPORT ROUTE STARTED ---")
     if not all([sheets_service, ACTUARIAL_SHEET_ID, BUSINESS_SHEET_ID]):
+        print("FATAL: Server configuration error. A service or Sheet ID is missing from environment variables.")
         return Response(json.dumps({"error": "Server configuration error. Check logs."}), status=500, mimetype='application/json')
 
     data = request.get_json()
     if not isinstance(data, list) or not data:
+        print(f"ERROR: Invalid data received from frontend. Type: {type(data)}")
         return Response(json.dumps({"error": "Invalid or empty data."}), status=400, mimetype='application/json')
 
     # Map roles to their permanent Sheet IDs
@@ -115,33 +119,49 @@ def export_all_to_sheet():
     }
 
     try:
+        print(f"Processing {len(data)} CV entries.")
         # Loop through each CV entry one-by-one
-        for entry in data:
+        for i, entry in enumerate(data):
             role = entry.get("role", "business")
-            sheet_id = sheet_id_map.get(role) # Get the correct sheet ID for this CV
-            
-            if not sheet_id:
-                continue # Skip if role is somehow invalid
+            sheet_id = sheet_id_map.get(role)
+            row_data = entry.get("row")
 
-            # Append this single row to the correct sheet
+            print(f"--- Processing Entry #{i+1} ---")
+            print(f"Assigned Role: '{role}'")
+            print(f"Target Sheet ID: '{sheet_id}'")
+            # print(f"Data to append: {row_data}") # Commented out to keep logs clean
+
+            if not sheet_id:
+                print("WARNING: Skipping entry because the target Sheet ID is missing or role is invalid.")
+                continue
+
+            # This is the API call to Google
             sheets_service.spreadsheets().values().append(
                 spreadsheetId=sheet_id,
                 range="A1",
                 valueInputOption="RAW",
                 insertDataOption="INSERT_ROWS",
-                body={"values": [entry["row"]]} # Note: we wrap the single row in a list
+                body={"values": [row_data]}
             ).execute()
-        
-        # After the loop finishes, return success with the URLs
+
+            print(f"SUCCESS: Appended entry #{i+1} to its sheet.")
+
+        # If the loop finishes without error
         sheet_urls = {
             "actuarial": f"https://docs.google.com/spreadsheets/d/{ACTUARIAL_SHEET_ID}",
             "business": f"https://docs.google.com/spreadsheets/d/{BUSINESS_SHEET_ID}"
         }
+        print("--- EXPORT ROUTE FINISHED SUCCESSFULLY ---")
         return Response(json.dumps({"sheets": sheet_urls}), mimetype='application/json')
 
     except Exception as e:
-        print(f"Sheet Export Failed: {e}")
+        # This will now give us the most detailed error possible
+        print("---!!! EXCEPTION CAUGHT !!!---")
+        print(f"ERROR: The process failed on Entry #{i+1} with role '{role}'.")
+        print(f"ERROR TYPE: {type(e)}")
+        print(f"ERROR DETAILS: {e}")
         return Response(json.dumps({"error": f"Export process failed: {e}"}), status=500, mimetype='application/json')
+
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
