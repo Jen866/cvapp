@@ -21,10 +21,13 @@ SCOPES = [
 try:
     service_account_info = json.loads(os.environ["GOOGLE_CREDS"])
 
+    # Gemini credentials
+    gemini_creds = service_account.Credentials.from_service_account_info(service_account_info)
 
-    gemini_creds = service_account.Credentials.from_service_account_info(info)
-    scoped_creds = service_account.Credentials.from_service_account_info(info, scopes=SCOPES)
+    # Sheets + Drive credentials with scopes
+    scoped_creds = service_account.Credentials.from_service_account_info(service_account_info, scopes=SCOPES)
 
+    # Configure Gemini + build services
     genai.configure(credentials=gemini_creds)
     gemini_json = genai.GenerativeModel("models/gemini-1.5-pro", generation_config={"response_mime_type": "application/json"})
 
@@ -38,11 +41,11 @@ except Exception as e:
     sheets_service = None
     drive_service = None
 
-# Sheet ID (single sheet to store all CVs)
-SHEET_ID = "17VWBbw2BwBC3eeuPVNqAESGdSVr7AVeMztKZLNfedb4"  # <-- Replace with your own sheet ID
+# Sheet ID (shared single sheet for all CVs)
+SHEET_ID = "17VWBbw2BwBC3eeuPVNqAESGdSVr7AVeMztKZLNfedb4"  # <-- your sheet ID
 SHEET_RANGE = "A1"
 
-# Fields to extract (must match front-end headers)
+# Fields to extract
 FIELDS = [
     "Name and Surname", "Contact number", "Email address", "Suburb", "City", "Province",
     "Race", "Qualification", "University of Qualification", "Year of Qualification",
@@ -129,4 +132,5 @@ def export_route():
 
 if __name__ == "__main__":
     app.run(debug=True)
+
 
